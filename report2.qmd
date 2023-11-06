@@ -1,0 +1,97 @@
+---
+title: "Project 2: Predicting Tracheostomy/Death in Neonates with Severe BPD"
+author: "Mavis (Xinwen) Liang"
+format: pdf
+number-sections: true
+editor: visual
+---
+
+
+```{r setup, include=FALSE, message=FALSE, error=FALSE}
+# Check and install packages
+packages_to_check <- c("gtsummary", "gt", "tidyverse", "kableExtra", "mice",
+                       "viridis", "gridExtra", "cowplot", "xtable", "knitr",
+                       "GGally")
+# Check if each package is installed and load it if available;
+# otherwise, install and load it
+for (pkg in packages_to_check) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    # If the package is not installed, install it
+    install.packages(pkg)
+    
+    # Now, load the package
+    library(pkg, character.only = TRUE)
+  } 
+}
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE,
+                      echo = FALSE, fig.align = "center")
+```
+
+# Abstract
+
+This report presents a regression model developed to predict the composite outcome of tracheostomy or death in neonates with severe bronchopulmonary dysplasia (sBPD). The exact indication criteria and timing of tracheostomy placement in this population are subjects of debate. Accurate prediction of the need for tracheostomy at early postmenstrual ages (PMA) can have significant implications for families and clinical decision-making. We utilized a national dataset containing demographic, diagnostic, and respiratory parameters of infants with sBPD, with a focus on assessing the impact of missing data and accounting for data collection from multiple centers.
+
+The code for this analysis can be found in Github: <https://github.com/Mavis-Liang/pda_project2>.
+
+# Introduction
+
+Severe BPD presents significant challenges in clinical management. This report aims to develop a regression model for predicting the composite outcome of tracheostomy placement or death, shedding light on when and for whom tracheostomy may be necessary. The dataset contains crucial information, but it requires thorough data preprocessing to account for missing values and center-specific variations.
+
+
+# Data Overview
+
+```{r}
+
+```
+
+
+# Data Preprocessing
+
+
+Missing Data Handling: Explain your approach to handling missing data and justify your choices.
+
+# Methods
+
+## Model Selection
+
+Explain the choice of regression model(s) and its suitability for the problem.
+
+## Multicenter modeling
+
+## Evaluation
+
+# Results
+
+## Model Interpretation
+
+Discuss the effect of key variables and their contributions to the model's predictions.
+
+## Assessment of Model Fit
+
+Evaluate how well the model fits the data, using appropriate metrics and visualizations.
+
+## Predictions for Different Subsets
+
+Present predictions for different subsets of individuals, possibly using tables or figures for clarity.
+
+# Disscusion
+
+## Conclusion
+
+## Limitations
+
+Discuss the limitations of the analysis, including the impact of missing data and data collected from multiple centers.
+
+
+\newpage
+
+# Code Appendix
+
+```{r get-labels, echo=FALSE}
+labs = knitr::all_labels()
+labs = setdiff(labs, c("get-labels"))
+```
+
+```{r all-code, ref.label=labs, echo=TRUE, eval=FALSE}
+```
