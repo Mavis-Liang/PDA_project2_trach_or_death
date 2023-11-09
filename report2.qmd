@@ -1,17 +1,20 @@
 ---
 title: "Project 2: Predicting Tracheostomy/Death in Neonates with Severe BPD"
 author: "Mavis (Xinwen) Liang"
-format: pdf
+format: 
+  pdf:
+    include-in-header:
+      - text: |
+          \floatplacement{figure}{H}
 number-sections: true
 editor: visual
 ---
-
 
 ```{r setup, include=FALSE, message=FALSE, error=FALSE}
 # Check and install packages
 packages_to_check <- c("gtsummary", "gt", "tidyverse", "kableExtra", "mice",
                        "viridis", "gridExtra", "cowplot", "xtable", "knitr",
-                       "GGally")
+                       "GGally", "pROC", "glmnet")
 # Check if each package is installed and load it if available;
 # otherwise, install and load it
 for (pkg in packages_to_check) {
@@ -38,30 +41,438 @@ The code for this analysis can be found in Github: <https://github.com/Mavis-Lia
 
 Severe BPD presents significant challenges in clinical management. This report aims to develop a regression model for predicting the composite outcome of tracheostomy placement or death, shedding light on when and for whom tracheostomy may be necessary. The dataset contains crucial information, but it requires thorough data preprocessing to account for missing values and center-specific variations.
 
+# Methods
 
-# Data Overview
+## Data Preprocessing
 
 ```{r}
-
+df <- read.csv("project2.csv")
 ```
 
+```{r preprocessing}
+# Data pre-processing
+## Remove duplicated entries
+df <- df[!duplicated(df$record_id), ]
+df <- df[!df$center==21 | is.na(df$center),]
+#df$com_prenat_ster[df$prenat_ster=="Yes"] <- "Yes"
+df <- select(df, -com_prenat_ster)
+# Convert character variables to factor variables (for mice)
+for (col in names(df)) {
+  if (is.character(df[[col]])) {
+    df[[col]] <- as.factor(df[[col]])
+  }
+}
 
-# Data Preprocessing
+# EDA for any_surf (which contain so many missing values)
+# df %>% 
+#   mutate(missing_surf = ifelse(is.na(any_surf), 1, 0),
+#          center = as.factor(center)) %>% 
+#   select(-c(record_id, any_surf)) %>% 
+#   tbl_summary(by = missing_surf,
+#               percent = "row") %>% 
+#   add_p() %>% 
+#   modify_spanning_header(all_stat_cols() ~ "**If missing any_surf**")
 
+
+## Separate into two dataset by discharge time
+variables.44 <- names(df)[grep("\\.44$", names(df))]
+df_clean <- 
+  df %>% 
+  mutate(center = as.factor(center),
+         mat_race = as.factor(mat_race),
+         trach_or_death = ifelse(Trach == 1 | Death == "Yes", 1, 0),
+         if_any_record_44 = !is.na(variables.44[1]) | 
+              !is.na(variables.44[2])| 
+              !is.na(variables.44[3]) | !is.na(variables.44[4])|
+              !is.na(variables.44[5])| !is.na(variables.44[6]),
+         cohort = case_when(!if_any_record_44 & is.na(hosp_dc_ga) ~ "cohort 36",
+                            hosp_dc_ga>=0 & hosp_dc_ga < 44 ~ "cohort 36",
+                            hosp_dc_ga>= 44 ~ "cohort 44",
+                            if_any_record_44 & is.na(hosp_dc_ga) ~"cohort 44")) %>% 
+  select(-c(any_surf, Trach, Death, if_any_record_44))
+
+df_44 <- 
+df_clean %>% 
+  filter(cohort == "cohort 44") %>% 
+  select(-cohort)
+
+df_36 <- 
+  df_clean %>% 
+  filter(cohort == "cohort 36") %>% 
+  select(-c(cohort, variables.44))
+
+table(df_36$trach_or_death)
+table(df_44$trach_or_death)
+```
+
+Categorical variables include,
+
+Continuous variables include
+
+The two outcomes are combined into
+
+any_surf is dropped.
+
+com_ester is related to (dropped!)
+
+some discharge age is too high
+
+discharge_NA
+
+centers outlier, discharge outlier(\<36)
+
+outlier: sensitivity
 
 Missing Data Handling: Explain your approach to handling missing data and justify your choices.
 
-# Methods
+```{r model_degraded, eval=FALSE}
+mice_try <- 
+  df_clean %>% 
+  select(-ends_with(".44"), -cohort) %>% 
+  mice(m = 5, print=F, seed = 222)
+
+test_num_try <- sample(c(TRUE, FALSE), size = nrow(df_clean), 
+                   replace = TRUE, prob = c(0.3, 0.7))
+
+df_try_train <- vector("list",5) 
+df_try_test <- vector("list",5) 
+for (i in 1:5){
+   df_try_train[[i]] <- mice::complete(mice_try,i)[!test_num_try,]
+   df_try_test[[i]] <- mice::complete(mice_try,i)[test_num_try,]
+}
+
+## Fitting glm
+mod_try <- glm(data = df_try_train[[1]][,-1], 
+            trach_or_death ~ ., 
+            family = "binomial")
+summary(mod_try)
+
+roc_curve_try <- roc(response = df_try_test[[1]]$trach_or_death,
+                 predictor = predict(mod_try, 
+                                     newdata = df_try_test[[1]][,-1], 
+                                     type = "response"))
+plot(roc_curve_try, print.auc = TRUE)
+```
+
+```{r mice}
+### Caution!! It would take > 0.5h to run mice
+# set.seed(56)
+# test_num_36 <- sample(c(TRUE, FALSE), size = nrow(df_36), 
+#                    replace = TRUE, prob = c(0.3, 0.7))
+# test_num_44 <- sample(c(TRUE, FALSE), size = nrow(df_44), 
+#                    replace = TRUE, prob = c(0.3, 0.7))
+# 
+# ## Mice
+# df_36_mice_out <- mice(df_36, m = 5, ignore = test_num_36,
+#                        printFlag = FALSE, seed = 222)
+# 
+# 
+# df_44_mice_out <- mice(df_44, m = 5, ignore = test_num_44,
+#                        printFlag = FALSE, seed = 222,
+#                        nnet.MaxNWts = 4300) # nnet.MaxNWts: allow it to run longer
+#saveRDS(df_36_mice_out, file = "df_36_mice_out.RDS")
+#saveRDS(df_44_mice_out, file = "df_44_mice_out.RDS")
+```
+
+```{r organizing_mice}
+#Load in the mice objects
+readRDS("df_36_mice_out.RDS")
+readRDS("df_44_mice_out.RDS")
+
+# Storing complete training set and testing sets
+df_36_train <- vector("list",5) 
+for (i in 1:5){
+   df_36_train[[i]] <- mice::complete(filter(df_36_mice_out, !test_num_36),i)
+}
+df_36_test <- mice::complete(filter(df_36_mice_out, test_num_36), action="stacked") 
+
+
+df_44_train <- vector("list",5) 
+for (i in 1:5){
+   df_44_train[[i]] <- mice::complete(filter(df_44_mice_out, !test_num_44),i)
+}
+df_44_test <- mice::complete(filter(df_44_mice_out, test_num_44), action="stacked") 
+
+
+## Combine the imputations from the two cohorts
+df_train <- vector("list", 5)
+for (i in 1:5) {
+  #filling zeros for NAs in Cohort 36 (these values is not used in the glm)
+   for (j in variables.44) {
+       df_36_train[[i]][[j]] <- 0
+   }
+  # add indicator variable for the two cohorts
+  df_36_train[[i]]$cohort_44 <- 0
+  df_44_train[[i]]$cohort_44 <- 1
+  df_train[[i]] <- rbind(df_36_train[[i]], df_44_train[[i]]) %>% 
+    select(-c(record_id))
+}
+
+# Test set store as a long format
+for (j in variables.44) {
+       df_44_test[[j]] <- 0
+       df_36_test[[j]] <- 0
+}
+df_36_test$cohort_44 <- 0
+df_44_test$cohort_44 <- 1
+
+df_test <- rbind(df_36_test, df_44_test)
+missing_heatmap(df_test)
+```
+
+```{r fitting}
+## model for only Cohort 44
+# summary(glm(data = df_44_imp[[1]][-1], 
+#             trach_or_death ~., 
+#             family = "binomial"))
+
+## Construct the full model
+variables_other <- names(df_train[[1]])[1:18]
+
+model_formula <- as.formula(paste(
+    "trach_or_death ~ ", 
+    paste0(variables_other, collapse = " + "),
+    " + cohort_44 +  cohort_44 : (",
+    paste0(variables.44, collapse = " + "),
+    ")"
+  ))
+
+model_formula_degrade <- 
+  as.formula(paste(
+    "trach_or_death ~ ", 
+    paste0(variables_other, collapse = " + ")))
+
+mod <- glm(data = df_train[[1]], 
+            model_formula, 
+            family = "binomial")
+
+roc_curve <- roc(response = df_test[[1]]$trach_or_death,
+                 predictor = predict(mod, 
+                                     newdata = df_test[[1]], 
+                                     type = "response"))
+plot(roc_curve, print.auc = TRUE)
+summary(mod)
+```
+
+```{r lasso_function, eval=FALSE}
+###################################################### 
+#### Lasso #### 
+###################################################### 
+lasso <- function(df) { 
+  #' Runs 10-fold CV for lasso and returns corresponding coefficients 
+  #' @param df, data set
+  #' @return coef, coefficients for minimum cv error
+  
+  # Matrix form for ordered variables 
+  x.ord <- model.matrix(model_formula, data = df)
+  y.ord <- df$trach_or_death
+  
+  # Generate folds
+  k <- 10 
+  set.seed(1) # consistent seeds between imputed data sets
+  folds <- sample(1:k, nrow(df), replace=TRUE)
+  
+  # Lasso model
+  lasso_mod_cv <- cv.glmnet(x.ord, y.ord, nfolds = 10, foldid = folds, 
+                         alpha = 1, family = "binomial") 
+  # lasso_mod <- cv.glmnet(x.ord, y.ord, nfolds = 10, 
+  #                        lambda =  lasso_mod_cv$lambda.min,
+  #                        alpha = 1, family = "binomial") 
+  
+  # Get coefficients 
+  coef <- coef(lasso_mod_cv, lambda = lasso_mod$lambda.min) 
+  return(coef) 
+} 
+```
+
+```{r run_lasso}
+# Find average lasso coefficients over imputed datasets
+pooling_lasso <- function(traing_data){
+  lasso_coef1 <- lasso(traing_data[[1]]) 
+  lasso_coef2 <- lasso(traing_data[[2]]) 
+  lasso_coef3 <- lasso(traing_data[[3]]) 
+  lasso_coef4 <- lasso(traing_data[[4]]) 
+  lasso_coef5 <- lasso(traing_data[[5]]) 
+  lasso_coef <- cbind(lasso_coef1, lasso_coef2, lasso_coef3, 
+                    lasso_coef4, lasso_coef5) 
+  avg_coefs_lasso <- apply(lasso_coef, 1, mean) 
+  return(avg_coefs_lasso)
+}
+set.seed(6)
+coef_pred <- pooling_lasso(df_train)
+
+# 
+predict_lasso <- function(test_data, coef){
+  x_vars <- model.matrix(model_formula, test_data)
+  test_data$lasso <- x_vars %*% coef
+  mod_lasso <- glm(trach_or_death~lasso, data = test_data, family = "binomial")
+  predict_probs_lasso <- predict(mod_lasso, type="response")
+  return(predict_probs_lasso)
+}
+predict_lasso(df_test, coef = coef_pred)
+
+
+```
 
 ## Model Selection
 
 Explain the choice of regression model(s) and its suitability for the problem.
 
-## Multicenter modeling
-
 ## Evaluation
 
+Validation set. R\^2
+
 # Results
+
+```{r table1}
+## Summarized table
+theme_gtsummary_compact(font_size = 4)
+df %>%
+  mutate(center = as.factor(center),
+         trach_or_death = ifelse(Trach == 1 | Death == "Yes", "Yes", "No")) %>% 
+  select(-record_id, Trach, Death) %>%
+  mutate(mat_ethn = case_when(mat_ethn== 1 ~ "Hispanic or Latino",
+                              mat_ethn == 2 ~ "Not Hispanic or Latino",
+                              is.na(mat_ethn) ~ NA),
+         del_method = case_when(del_method == 1 ~ "Vaginal delivery",
+                                del_method == 2 ~ "Cesarean section",
+                                is.na(del_method) ~ NA),
+         ventilation_support_level.36 = case_when(ventilation_support_level.36
+== 0 ~ "No respiratory support or supplemental oxygen",
+ventilation_support_level.36 == 1 ~ "Non-invasive positive pressure",
+ventilation_support_level.36 == 2 ~ "Invasive positive pressure",
+is.na(ventilation_support_level.36) ~ NA),
+          ventilation_support_level_modified.44 = case_when(ventilation_support_level_modified.44
+== 0 ~ "No respiratory support or supplemental oxygen",
+ventilation_support_level_modified.44 == 1 ~ "Non-invasive positive pressure",
+ventilation_support_level_modified.44 == 2 ~ "Invasive positive pressure",
+is.na(ventilation_support_level_modified.44) ~ NA),
+         Trach = case_when(Trach == 0 ~ "No",
+                           Trach == 1 ~ "Yes"),
+          med_ph.36 = case_when(med_ph.36 == 0 ~ "No",
+                                med_ph.36 == 1 ~ "Yes",
+                                is.na(med_ph.36) ~ NA),
+          med_ph.44 = case_when(med_ph.44 == 0 ~ "No",
+                                med_ph.44 == 1 ~ "Yes",
+                                is.na(med_ph.44) ~ NA)) %>% 
+  
+  tbl_summary(type = list(prenat_ster ~ 'categorical',
+                          com_prenat_ster ~ 'categorical',
+                          mat_chorio ~ 'categorical',
+                          any_surf ~ 'categorical',
+                          med_ph.36 ~ 'categorical',
+                          med_ph.44 ~ 'categorical',
+                          Trach ~ 'categorical',
+                          Death ~ 'categorical'),
+              by = trach_or_death,
+              percent = "row",
+              missing_text = "missing",
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              label = list(`center` = "Medical Center",
+                           `mat_race` = "Maternal Race",
+                           `mat_ethn` = "Maternal Ethnicity",
+                           `bw` = "Birth Weight (g)",
+                           `ga` = "Obstetrical Gestational Age",
+                           `blength` = "Birth Length (cm)",
+                           `birth_hc` = "Birth Head Circumference (cm)",
+                           `del_method` = "Delivery Method",
+                           `prenat_ster` = "Prenatal Corticosteroids",
+                           `com_prenat_ster` = "Complete Prenatal Steroids",
+                           `mat_chorio` = "Maternal Chorioamnionitis",
+                           `gender` = "Gender",
+                           `sga` = "Small for Gestational Age",
+                           `any_surf` = "Surfactant Received",
+                           `weight_today.36` = "Weight at 36 Weeks",
+                           `ventilation_support_level_modified.36` = "Ventilation Support at 36 Weeks",
+                           `inspired_oxygen.36` = "Inspired Oxygen at 36 Weeks",
+                           `p_delta.36` = "Peak Inspiratory Pressure at 36 Weeks",
+                           `peep_cm_h2o_modified.36` = "PEEP* at 36 Weeks",
+                           `med_ph.36` = "Medication for PH* at 36 Weeks",
+                           `weight_today.44` = "Weight at 44 Weeks",
+                           `ventilation_support_level_modified.44` = "Ventilation Support at 44 Weeks",
+                           `inspired_oxygen.44` = "Inspired Oxygen at 44 Weeks",
+                           `p_delta.44` = "Peak Pressure at 44 Weeks",
+                           `peep_cm_h2o_modified.44` = "PEEP at 44 Weeks",
+                           `med_ph.44` = "Medication for PH at 44 Weeks",
+                           `hosp_dc_ga` = "Hospital Discharge Gestational Age",
+                           `Trach` = "Tracheostomy")) %>% 
+  bold_labels() %>%
+  add_p() %>% 
+  add_overall() %>% 
+  modify_header(label = "**Variables**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Tracheostomy or Death**") %>% 
+  modify_footnote(all_stat_cols() ~ "PEEP: Positive end exploratory pressure;
+                  PH: Pulmonary Hypertension")%>% 
+  as_kable_extra(booktabs = TRUE,
+                format = "latex",
+               longtable = TRUE,
+                 caption = "Summary of xxx")  %>%
+  kable_styling(latex_options = "hold_position", font_size = 4)
+```
+
+```{r missing_heatmap_function, fig.cap="Individual missing patterns."}
+## Missing value heatmap
+missing_heatmap <- function(df, main=""){
+  df_missing <- 
+  apply(df, 2, function(x) ifelse(is.na(x), "Yes", "No")) %>%
+  as.data.frame()
+
+df_missing %>%
+  mutate(record_id = as.factor(df$record_id)) %>%
+  pivot_longer(cols = names(df)[2:length(names(df))], 
+               names_to = "Variables", 
+               values_to = "is_missing") %>%
+  mutate(is_missing = factor(is_missing, levels= c("Yes", "No")))%>%
+  mutate(Variables = factor(Variables, levels = names(df)[2:length(names(df))])) %>%
+  ggplot(aes(Variables, record_id, fill=is_missing, )) +
+  geom_tile() +
+  scale_fill_viridis(discrete = TRUE, option = "G") +
+  theme(text = element_text(size = 7),
+        axis.text.x = element_text(size = 4, 
+                                   angle = 60, hjust = 0.8, vjust = .9),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())+
+  labs(fill = "Is missing?", title = main)
+}
+```
+
+```{r heatmaps}
+missing_heatmap(df)
+missing_36 <- missing_heatmap(df_36, main = "Cohort 36")
+missing_44 <- missing_heatmap(df_44, main = "Cohort 44")
+grid.arrange(missing_36, missing_44, ncol=2)
+```
+
+The data contains 996 individuals of 30 variables (after duplicated entries is removed for the individual with the recod id of 2000824. Within each individual data, we have the demographic social-economic data **XXXX**
+
+```{r EDA_two_cohorts}
+## Table for 44 week for patients who discharged or not before 44 week
+df_clean %>% 
+  select(weight_today.44, ventilation_support_level_modified.44, inspired_oxygen.44,
+         p_delta.44, peep_cm_h2o_modified.44, med_ph.44, cohort) %>% 
+  tbl_summary(by = cohort) %>% 
+  modify_spanning_header(all_stat_cols() ~ "**If discharged before 44 week**")
+```
+
+```{r eda_continuous}
+eda_data <- df %>%
+  mutate(trach_or_death = ifelse(Trach == 1 | Death == "Yes", "Yes", "No")) %>%
+  select(ga, bw, blength, birth_hc, hosp_dc_ga, trach_or_death)
+
+eda_plot <- eda_data %>%
+  gather(variable, value, -trach_or_death) %>%
+  ggplot(aes(x = trach_or_death, y = value, fill = trach_or_death)) +
+  geom_boxplot() +
+  facet_wrap(~variable, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "Tracheostomy or Death",
+    y = "Value",
+    title = "Exploratory Data Analysis of Continuous Variables by Tracheostomy or Death",
+    fill = "Tracheostomy or Death"
+  )
+eda_plot
+```
 
 ## Model Interpretation
 
@@ -81,8 +492,9 @@ Present predictions for different subsets of individuals, possibly using tables 
 
 ## Limitations
 
-Discuss the limitations of the analysis, including the impact of missing data and data collected from multiple centers.
+race: 0, 1, 2??
 
+Discuss the limitations of the analysis, including the impact of missing data and data collected from multiple centers.
 
 \newpage
 
