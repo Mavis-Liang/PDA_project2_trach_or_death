@@ -1,11 +1,12 @@
 ---
-title: "Project 2: Predicting Tracheostomy/Death in Neonates with Severe BPD Using Lasso Logistic Regression"
+title: "Project 2: Predicting Tracheostomy/Death in Neonates with Severe BPD: a comprehensive mix-effect logistic regression model accounting for patients with different discharge age"
 author: "Mavis (Xinwen) Liang"
 format: 
   pdf:
     include-in-header:
       - text: |
           \floatplacement{figure}{H}
+bibliography: cite.bib
 number-sections: true
 editor: visual
 ---
@@ -14,7 +15,7 @@ editor: visual
 # Check and install packages
 packages_to_check <- c("gtsummary", "gt", "tidyverse", "kableExtra", "mice",
                        "viridis", "knitr", "gridExtra",
-                       "GGally", "pROC", "glmnet", "splines")
+                       "GGally", "pROC", "glmnet", "splines", "glmmLasso", "binom")
 # Check if each package is installed and load it if available;
 # otherwise, install and load it
 for (pkg in packages_to_check) {
@@ -116,14 +117,13 @@ df_36 <-
 
 **Variable selection and transformation**
 
-The two outcomes (Tracheotomy and Death) are combined into one singel outcome of `trach_or_death`, since the proportion of death  is too low in the data, and, on the other hand, both tracheotomy and death can indicate a severe outcome of sBPD in newborns. 
+The two outcomes (Tracheotomy and Death) are combined into one singel outcome of `trach_or_death`, since the proportion of death is too low in the data, and, on the other hand, both tracheotomy and death can indicate a severe outcome of sBPD in newborns.
 
 The covariates and how they were processed are summarized as below:
 
-*Categorical variables*: (1) Medical center: the medical center of number 21 has only one data point, thus we dropped this data point. (2) Maternal race. (3) Maternal Ethnicity. (4) Delivery Method. (5) Prenatal Corticosteroids. (6) Complete Prenatal Steroids: it's highly incomplete and closely associated with Prenatal Corticosteroids, thus we dropped this variable in our model. (7) Gender. (8) Was the infant small for gestational age. (9) Did the infant receive surfactant at any point in the first 72 hours? : We dropped this cavariates due to its high incompleteness. (10) Ventilation support level at 36 weeks. (11) Medication for Pulmonary Hypertension at 36 weeks. (12) Ventilation support level at 44 weeks. (13) Medication for Pulmonary Hypertension at 44 weeks. 
+*Categorical variables*: (1) Medical center: the medical center of number 21 has only one data point, thus we dropped this data point. (2) Maternal race. (3) Maternal Ethnicity. (4) Delivery Method. (5) Prenatal Corticosteroids. (6) Complete Prenatal Steroids: it's highly incomplete and closely associated with Prenatal Corticosteroids, thus we dropped this variable in our model. (7) Gender. (8) Was the infant small for gestational age. (9) Did the infant receive surfactant at any point in the first 72 hours? : We dropped this cavariates due to its high incompleteness. (10) Ventilation support level at 36 weeks. (11) Medication for Pulmonary Hypertension at 36 weeks. (12) Ventilation support level at 44 weeks. (13) Medication for Pulmonary Hypertension at 44 weeks.
 
 *Contiuous variables*: (1) Birth weight (g): transformed into linear spline terms at the knot of 1610. (2) Obstetrical gestational age. (3) Birth length (cm): transformed into linear spline terms at the knot of 40. (4) Birth head circumference (cm). (5) Weight at 36 weeks: : transformed into linear spline terms at the knots of 1510 and 2710. (6) Fraction of Inspired Oxygen at 36 weeks: : transformed into linear spline terms at the knot of 0.789. (7) Peak Inspiratory Pressure (cmH2O) at 36 weeks. (8) Positive and exploratory pressure (cm H2O) at 36 weeks. (9) Weight at 44 weeks: transformed into linear spline terms at the knot of 2110. (10) Fraction of Inspired Oxygen needed at 44 weeks: transformed into linear spline terms at the knot of 0.737. (11) Peak Inspiratory Pressure (cmH2O) needed at 44 weeks (12) Positive end exploratory pressure (cm H2O) needed at 44 weeks.
-
 
 **Multiple imputation**
 
@@ -152,58 +152,65 @@ test_num_44 <- sample(c(TRUE, FALSE), size = nrow(df_44),
 #Load in the mice objects
 df_36_mice_out <- readRDS("df_36_mice_out.RDS")
 df_44_mice_out <- readRDS("df_44_mice_out.RDS")
-
 # Storing complete training set and testing sets
-df_36_train <- vector("list",5) 
+df_36_train <- vector("list",5)
 for (i in 1:5){
-   df_36_train[[i]] <- mice::complete(filter(df_36_mice_out, !test_num_36),i)
+df_36_train[[i]] <- mice::complete(filter(df_36_mice_out, !test_num_36),i)
 }
-df_36_test <- mice::complete(filter(df_36_mice_out, test_num_36), action="stacked") 
-
-
-df_44_train <- vector("list",5) 
+df_36_test <- mice::complete(filter(df_36_mice_out, test_num_36), action="stacked")
+df_44_train <- vector("list",5)
 for (i in 1:5){
-   df_44_train[[i]] <- mice::complete(filter(df_44_mice_out, !test_num_44),i)
+df_44_train[[i]] <- mice::complete(filter(df_44_mice_out, !test_num_44),i)
 }
-df_44_test <- mice::complete(filter(df_44_mice_out, test_num_44), action="stacked") 
-
-
+df_44_test <- mice::complete(filter(df_44_mice_out, test_num_44), action="stacked")
 ## Combine the imputations from the two cohorts
 df_train <- vector("list", 5)
 for (i in 1:5) {
-  #filling zeros for NAs in Cohort 36 (these values is not used in the glm)
-   for (j in variables.44) {
-       df_36_train[[i]][[j]] <- 0
-   }
-  # add indicator variable for the two cohorts
-  df_36_train[[i]]$disc_44 <- 0
-  df_44_train[[i]]$disc_44 <- 1
-  df_train[[i]] <- rbind(df_36_train[[i]], df_44_train[[i]]) %>% 
-    select(-c(record_id))
-}
-
+#filling zeros for NAs in Cohort 36 (these values is not used in the glm)
 for (j in variables.44) {
-       df_36_test[[j]] <- 0
+df_36_train[[i]][[j]] <- 0
+}
+# add indicator variable for the two cohorts
+df_36_train[[i]]$disc_44 <- 0
+df_44_train[[i]]$disc_44 <- 1
+df_train[[i]] <- rbind(df_36_train[[i]], df_44_train[[i]]) %>%
+  select(-c(record_id))
+}
+for (j in variables.44) {
+df_36_test[[j]] <- 0
 }
 df_36_test$disc_44 <- 0
 df_44_test$disc_44 <- 1
-
 df_test <- rbind(df_36_test, df_44_test)
 ```
 
-
 ## Model Building
 
-Separately for each of the 5 imputation dataset but with the same seed, we randomly sample 70\% of the individuals to form a training set. We first fitted a multivariate logistic regression in one of the training set to find the preliminary significant levels of the variables.
+Separately for each of the 5 imputation dataset but with the same seed, we randomly sample 70% of the individuals to form a training set. We first fitted a multivariate logistic regression in one of the training set to find the preliminary significant levels of the variables.
 
 To enhance the robustness of our coefficient estimates and account for missing data, on each training set, we fitted LASSO logistic regressions and employed 10-fold cross-validation to determine the optimal penalty factor for each LASSO model. The penalty factor was selected to minimize the Mean Square Error across the 10 folds. Then we pooled the coefficients obtained from the 5 best models corresponding to the respective imputed training sets by averaging coefficients across the 5 best models. The pooled coefficients work as our final model.
 
-In the Lasso logistic regressions, we modeled the log odds of experiencing tracheotomy or death as a linear combination of the specified covariates from the Data Processing session. Instead of directly adding the 44 week's measurements themselves, we created an indicator variable of "whether a patient has been discharged at 44 week" and include this and its interaction term with the measurements at the 44th week in the model. In this way, the coefficients we get for most of the covariates are estimated with the whole data, while coefficients pertaining to measurements at the 44th week are specifically derived from patients who have not been discharged at that time. 
+In the Lasso logistic regressions, we modeled the log odds of experiencing tracheotomy or death as a linear combination of the specified covariates from the Data Processing session. Instead of directly adding the 44 week's measurements themselves, we created an indicator variable of "whether a patient has been discharged at 44 week" and include this and its interaction term with the measurements at the 44th week in the model. In this way, the coefficients we get for most of the covariates are estimated with the whole data, while coefficients pertaining to measurements at the 44th week are specifically derived from patients who have not been discharged at that time.
+
+$$
+E(logit(P(Y_j))) = \beta_0+\beta_j+\sum(\beta_k\cdot X_k)+\beta_{disc44}\cdot disc44+\sum(\beta_m\cdot disc44\cdot X_m^{44})
+$$
+
+Where:
+
+-   $Y_j$ is whether a patient has experienced tracheostomy or death.
+-   $Y_j$ is the outcome variable `trach_or_death`.
+-   $X_k$ and $X_m^{44}$ are the variables measured before 44 week or at 44 week.
+-   `disc_44` indicates whether a patient is discharged after the 44 week.
+-   $\beta_0$ is the average intercept for all centers and $\beta_j$ is the center-specific random effect.
+-   $\beta_k$ are the coefficients for the variables measured before 44 week.
+-   $\beta_m$ are the coefficients for the variables measured at 44 week.
+
+Moreover, we treat the center effect as random effects on the intercept of the logistic regression model.
 
 ## Model evaluation
 
-The 30\% left-out samples from the 5 imputation sets were combined into a long dataset to form the test set (each individuals have 5 entries). We then used the pooled coefficients and the test set to evaluate the model performance. We constructed the Receiver Operating Characteristic (ROC) curve depicting the trade-off between sensitivity and specificity across different probability thresholds, along with the AUC which quantify the model's discriminatory power. We also assess the agreement between the predicted probabilities against observed outcomes using calibration plot.
-
+The 30% left-out samples from the 5 imputation sets were combined into a long dataset to form the test set (each individuals have 5 entries). We then used the pooled coefficients and the test set to evaluate the model performance. We constructed the Receiver Operating Characteristic (ROC) curve depicting the trade-off between sensitivity and specificity across different probability thresholds, along with the AUC which quantify the model's discriminatory power. We chose the best cutoff defined by the frequently used summary index of marker accuracy Youden's Statistics $J=Sensitivity+Specificity - 1$ and the cutoff that maximizes J is considered the optimal cutoff [@youden1950index]. Sensitivity and specificity under this cutoff is presented. We also assess the agreement between the predicted probabilities against observed outcomes using calibration plot.
 
 # Results
 
@@ -216,6 +223,7 @@ missing_heatmap <- function(df, main=""){
   apply(df, 2, function(x) ifelse(is.na(x), "Yes", "No")) %>%
   as.data.frame()
 
+  plot <- 
 df_missing %>%
   mutate(record_id = as.factor(df$record_id)) %>%
   pivot_longer(cols = names(df)[2:length(names(df))], 
@@ -232,21 +240,21 @@ df_missing %>%
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank())+
   labs(fill = "Is missing?", title = main)
+
+  return(plot)
 }
 ```
 
-
 ```{r heatmaps, fig.cap="Missing patterns in original dataset"}
-missing_heatmap(df)
-# missing_36 <- missing_heatmap(df_36, main = "Cohort 36")
-# missing_44 <- missing_heatmap(df_44, main = "Cohort 44")
-# grid.arrange(missing_36, missing_44, ncol=2)
+#missing_heatmap(df)
+missing_36 <- missing_heatmap(df_36, main = "Patients discharged before 44 week")
+missing_44 <- missing_heatmap(df_44, main = "Patients discharged after 44 week")
+grid.arrange(missing_36, missing_44, ncol=2)
 ```
 
-The data contains 993 individuals of 30 variables (after duplicated entries is removed for the individual with the recod id of 2000824, and center 21 is removed). For each individual, we have mother's demographic record, the infants' physical measurements, medical treatments and measurements at 36 week and at 44 week, and the outcome of Tracheotomy or Death. Figure 1 visualized the individual missingness. The data contains a high degree of missingness, which needs imputation, but will still have a large noise in our model and prediction. Specifically, measurements at the 44th week are highly incomplete due to the early discharge of the patients. Within patients discharged after 44 week, we still have ~90 over 685 missingness. Other variables of Complete Prenatal Steroids and Did the infant receive surfactant at any point in the first 72 hours? also have large proportions of missing values.
+The data contains 993 individuals of 30 variables (after duplicated entries is removed for the individual with the recod id of 2000824, and center 21 is removed). For each individual, we have mother's demographic record, the infants' physical measurements, medical treatments and measurements at 36 week and at 44 week, and the outcome of Tracheotomy or Death. Figure 1 visualized the individual missingness. The data contains a high degree of missingness, which needs imputation, but will still have a large noise in our model and prediction. Specifically, measurements at the 44th week are highly incomplete due to the early discharge of the patients. Within patients discharged after 44 week, we still have \~90 over 685 missingness. Other variables of Complete Prenatal Steroids and Did the infant receive surfactant at any point in the first 72 hours? also have large proportions of missing values.
 
-
-```{r table1}
+```{r table1, eval=FALSE}
 ## Summarized table
 theme_gtsummary_compact(font_size = 4)
 df %>%
@@ -332,7 +340,7 @@ is.na(ventilation_support_level_modified.44) ~ NA),
   kable_styling(latex_options = "hold_position", font_size = 4)
 ```
 
-Table 1 provides a comprehensive summary of the variables stratified by the outcome of Tracheostomy or Death in a cohort of 993 individuals, along with the Pearson’s Chi-squared test or Wilcoxon rank sum test p-values within each variables. Specifically, Medical Center 2 has a large proportion of patitient in our study, therefore, the effect of Medical Center 2 will have a high effect in model building. This missingness in the variables of Complete Prenatal Steroids and Surfactant Received is notable. Patitiens only have the outcome of either Tracheostomy or Death.
+Table 1 provides a comprehensive summary of the variables stratified by the outcome of Tracheostomy or Death in a cohort of 993 individuals, along with the Pearson's Chi-squared test or Wilcoxon rank sum test p-values within each variables. Specifically, Medical Center 2 has a large proportion of patitient in our study, therefore, the effect of Medical Center 2 will have a high effect in model building. This missingness in the variables of Complete Prenatal Steroids and Surfactant Received is notable. Patitiens only have the outcome of either Tracheostomy or Death.
 
 ```{r eda_linearity, results='hide', fig.height=6, fig.cap="Proportion of Tracheotomy/Death in Continuous Variables"}
 linearty_check <- function(var, label){
@@ -433,21 +441,9 @@ df_test_with_spline <- create_and_replace_spline(df_test)
 variables_other <- names(df_train_with_spline[[1]])[c(1:15, 22:27, 30:32)]
 variables.44 <- names(df_train_with_spline[[1]])[c(17:20, 28:29, 33:34)]
 
-
-model_formula <- as.formula(paste(
-  "trach_or_death ~ ", 
-  paste0(variables_other[!variables_other %in% c("inspired_oxygen.36", "inspired_oxygen.44")], collapse = " + "),
-  " + disc_44 +  disc_44 : (",
-  paste0(variables.44, collapse = " + "), ")"
-))
-
-
-mod <- glm(data = df_train_with_spline[[1]], 
-            model_formula, 
-            family = "binomial")
 ```
 
-```{r lasso_function}
+```{r lasso_function, eval=FALSE}
 ###################################################### 
 #### Lasso #### 
 ###################################################### 
@@ -478,7 +474,7 @@ lasso <- function(df) {
 } 
 ```
 
-```{r run_lasso}
+```{r run_lasso, eval=FALSE}
 # Find average lasso coefficients over imputed datasets
 pooling_lasso <- function(traing_data){
   lasso_coef1 <- lasso(traing_data[[1]]) 
@@ -495,6 +491,98 @@ set.seed(6)
 coef_pred <- pooling_lasso(df_train_with_spline)
 ```
 
+```{r  glmm-lasso}
+###################################################### 
+#### GLMM Lasso #### 
+###################################################### 
+glmm_lasso <- function(df, num_lambda = 10) { 
+  #' Runs 10-fold CV for GLMM lasso and returns corresponding coefficients 
+  #' @param df, data set
+  #' @param random_effect, the name of the random effect variable (e.g., center)
+  #' @return coef, coefficients for minimum cv error
+
+  # Prepare the formula
+  formula <- as.formula(paste(
+"trach_or_death ~ ",
+paste0(variables_other[!variables_other %in% c("inspired_oxygen.36", "inspired_oxygen.44", "center", "hosp_dc_ga")], collapse = " + "),
+" + disc_44 + disc_44 : (",
+paste0(variables.44, collapse = " + "), ")"
+))
+
+  # Generate folds
+  k <- 10 
+  set.seed(1) # consistent seeds between imputed data sets
+  folds <- sample(1:k, nrow(df), replace=TRUE)
+
+  # Initialize matrix for coefficients and vector for deviances
+  Coeff_ma <- NULL
+  Devianz_ma <- numeric(num_lambda)
+  
+  # Define a sequence of lambda values
+  lambda <- 10^seq(-3, 5, length = num_lambda)
+
+  # Loop over lambda values
+  for (j in seq_along(lambda)) {
+    # Initialize a vector to store deviance for each fold
+    deviance_folds <- numeric(k)
+
+    # Cross-validation loop
+    for (i in 1:k) {
+      # Split the data
+      train_data <- df[folds != i, ]
+      test_data <- df[folds == i, ]
+    
+
+      # Fit the model on training data
+      glm1 <- glmmLasso(formula, data = train_data, rnd = list(center=~1), family = binomial(),lambda = lambda[j], switch.NR = TRUE, final.re = TRUE)
+      
+      # Initialize Coeff_ma in the first iteration
+      if (is.null(Coeff_ma)) {
+        Coeff_ma <- matrix(nrow = num_lambda, ncol = length(coef(glm1)))
+      }
+
+      # Store coefficients
+      Coeff_ma[j, ] <- coef(glm1)
+
+      # Predict on test data and calculate deviance
+      y.hat <- predict(glm1, test_data)
+      deviance_folds[i] <- 
+        sum(with(test_data, 
+                 binomial()$dev.resids(trach_or_death, 
+                                        y.hat, 
+                                        wt = rep(1, length(y.hat)))))
+    }
+
+    # Store average deviance for this lambda
+    Devianz_ma[j] <- mean(deviance_folds)
+  }
+
+  # Find the lambda with the minimum average deviance
+  best_lambda <- lambda[which.min(Devianz_ma)]
+  best_model <- glmmLasso(formula, data = df, rnd = list(center=~1), 
+                          family = binomial(),lambda = best_lambda, 
+                          switch.NR = TRUE, final.re = TRUE)
+  
+
+  # Return the best model and lambda
+  return(coefficients(best_model)) 
+}
+```
+
+```{r run-glmmlasso}
+# Find average GLMM lasso coefficients over imputed datasets
+pooling_glmm_lasso <- function(training_data){
+  coefs <- lapply(training_data, function(df) glmm_lasso(df))
+  avg_coefs_glmm_lasso <- rowMeans(do.call(cbind, coefs))
+  return(avg_coefs_glmm_lasso)
+}
+
+#set.seed(6)
+#coef_pred_glmm <- pooling_glmm_lasso(df_train_with_spline)
+#saveRDS(coef_pred_glmm, file = "coef_final.RDS")
+coef_pred_glmm <- read_rds("coef_final.RDS")
+```
+
 ## Model Interpretation
 
 Table 2 shows the pooled coeficients estimated with cross-validation lasso logistic regression in 5 imputated training set. The lasso coefficients being positive indicates a higher odds of getting Tracheotomy/Death comparing to the reference group or as the continous variable grow by one unit. In this sense, patients in center 12 with maternal race 2, having prenatal steroids, and being small, having a Ventilation support level 2 at 36 or 44, weeks, and having any Medication for Pulmonary Hypertension at 44 weeks, would have a higher odds of getting Tracheotomy/Death. For patients with a birth weight higher than 1610g, the odds of getting Tracheotomy/Death will increase by 12.835 times as the birth weight increased by 1 unit. Same interpretations can be drawn for the coefficients that have a negative value.
@@ -505,41 +593,61 @@ On the other hand, variables of Obstetrical gestational age, Birth head circumfe
 
 To use this model for prediction, we first identify whether a patient is discharged before 44 week. For patients discharged before 44 week, we only use the coefficients and variables above `disc_44` to estimate the probibility. For patients discharged after 44 week, we utilize their measurements at the 44 week. Thus for these patients we use all the variables in Table 2 for estimation.
 
-
 ```{r coef_display}
 # Create a data frame for odds ratios and their CIs
 # Extract odds ratios and their confidence intervals
 result_table <- 
 data.frame(
-  Lasso_coefficient = round(coef_pred, 3),
-  Odds_ratio = round(exp(coef_pred), 3)
-  )
+  covariates = names(coef_pred_glmm),
+  Lasso_coefficient = round(coef_pred_glmm, 3)
+  ) %>%
+  mutate(covariates = ifelse(covariates == "disc_44:ventilation_support_level_modified.441",
+                             "disc_44:vent_spt_lev.441",
+                             covariates),
+         covariates = ifelse(covariates == "disc_44:ventilation_support_level_modified.442",
+                             "disc_44:vent_spt_lev.442",
+                             covariates)) %>% `rownames<-`(NULL)
+table1 <- result_table[1:17, ] %>%
+  knitr::kable(format = "latex", booktabs = TRUE) %>%
+  kable_styling(bootstrap_options = "condensed", font_size = 10, full_width = F) %>%
+  column_spec(1, width = "3cm")
 
-rownames(result_table)[rownames(result_table) == "(Intercept)"] <- "Intercept"
-result_table %>% 
-  kableExtra::kable(booktabs = TRUE,
-                    longtable = TRUE,
-                    col.names = c("Lasso coefficient", "Odds ratio"),
-  caption = "Association of selected variables with tracheostomy and death")%>%
-  kable_styling(latex_options = "hold_position", font_size = 4) 
+table2 <- result_table[18:35, ] %>% `rownames<-`(NULL) %>%
+  knitr::kable(format = "latex", booktabs = TRUE) %>%
+  kable_styling(bootstrap_options = "condensed", font_size = 10, full_width = F) %>%
+  column_spec(1, width = "5.5cm")
+
+list(result_table[1:17, ], result_table[18:35, ] %>% `rownames<-`(NULL)) %>%
+  knitr::kable(format = "latex", booktabs = TRUE,
+               caption = "Estimated coefficients") %>%
+  kable_styling(bootstrap_options = "condensed", font_size = 6, full_width = F) 
 ```
-
 
 ## Assessment of Model Fit
 
-Figure 3 illustrate the discrimination and calibration of the model in the validation set. The ROC is above the diagonal line and very close to a rectangle shape, with an AUC very close to 1. This result suggest that under appropriate sensitivity-specificity trade-off, the model can discriminate positive/negative outcome successfully. On the calibration plot, the relationship between the predicted probabilities and observed proportions is roughly a straight line, with some variance when the predicted probability/observed probability is high. This suggest that the model predicts probability of Tracheotomy/Death well, with a small deviate when the predicted probability is high (false positive).
+Figure 3 illustrate the discrimination and calibration of the model in the validation set. The ROC is above the diagonal line and very close to a rectangle shape, with an AUC very close to 1. This result suggest that under appropriate sensitivity-specificity trade-off, the model can discriminate positive/negative outcome successfully. When the threshhold is set to be 0.137 (while p\>0.137, the patients are predicted to have tracheotomy or death; p\<=0.137, the patients are predicted to have no tracheotomy or death), the sensitivity and specificity of this model are 0.816 and 0.917.
+
+The calibration plot shows that most patients (60\%) are predicted to be at a low risk (P<10\%) of tracheotomy and death. When the predicted probabilities are high, the the predicted values tend to underestimate the original outcome.
 
 ```{r evaluation, results='hide', fig.height=3, fig.cap="Model evaluation"}
 # Get predicted values with pooled coefs
 predict_lasso <- function(test_data, coef){
-  x_vars <- model.matrix(model_formula, test_data)
-  test_data$lasso <- x_vars %*% coef
-  mod_lasso <- glm(trach_or_death~lasso, data = test_data, family = "binomial")
-  predict_probs_lasso <- predict(mod_lasso, type="response")
-  return(predict_probs_lasso)
+  formula <- as.formula(paste(
+"trach_or_death ~ ",
+paste0(variables_other[!variables_other %in% c("inspired_oxygen.36", "inspired_oxygen.44", "center", "hosp_dc_ga", "record_id")], collapse = " + "),
+" + disc_44 + disc_44 : (",
+paste0(variables.44, collapse = " + "), ")"
+))
+  
+  x_vars <- model.matrix(formula, test_data)
+  #test_data$lasso <- x_vars %*% coef
+  #mod_lasso <- glm(trach_or_death~lasso, data = test_data, family = "binomial")
+  # predict_probs_lasso <- predict(mod_lasso, type="response")
+  return(x_vars)
 }
 
-df_test_with_spline$predict_probs_lasso <- predict_lasso(df_test_with_spline, coef = coef_pred)
+df_test_with_spline$predict_probs_lasso <- 
+  predict(glm(df_test_with_spline$trach_or_death ~ predict_lasso(df_test_with_spline, coef = coef_pred_glmm) %*% coef_pred_glmm, family = "binomial"), type = "response")
 
 
 #ROC-AUC
@@ -554,18 +662,44 @@ roc_plot <- ggroc(roc_curve_lasso) +
   annotate("text", x = 0.35, y = 0.3, 
            label = paste("AUC =", round(auc_value, 2)), color = "blue")
   theme_minimal()
+  
+# Spec and sens at the optimal cutoff
+optim_threshold = coords(roc_curve_lasso, "best", ret = "threshold")$threshold
+predicted_class <- ifelse(df_test_with_spline$predict_probs_lasso >= optim_threshold, 1, 0)
+confusion_matrix <- table(Actual = df_test_with_spline$trach_or_death,
+                          Predicted = predicted_class)
+
+sens  <- confusion_matrix[1, 1] / sum(confusion_matrix[1, ])
+spec  <- confusion_matrix[2, 2] / sum(confusion_matrix[2, ])
 
 # Calibration
-cal_plot <- ggplot(df_test_with_spline, aes(predict_probs_lasso, trach_or_death)) +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+num_bins <- 10
+df_binned <- df_test_with_spline %>%
+  mutate(predicted_prob_bin = cut(predict_probs_lasso, 
+                                  breaks = quantile(predict_probs_lasso, 
+                                                    probs = seq(0, 1, length.out = num_bins + 1)), include.lowest = TRUE)) %>% 
+  group_by(predicted_prob_bin) %>%
+  summarise(
+    mean_predicted_prob = mean(predict_probs_lasso),
+    observed_outcome = mean(trach_or_death),
+    n = n(),
+    conf_low = binom.confint(sum(trach_or_death), n, methods = "wilson")$lower,
+    conf_high = binom.confint(sum(trach_or_death), n, methods = "wilson")$upper
+  )
+
+
+cal_plot <- ggplot(df_binned, aes(x = mean_predicted_prob, y = observed_outcome)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = conf_low, ymax = conf_high), width = 0.02) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
   labs(title = "Calibration Plot",
-       x = "Predicted Probabilities",
-       y = "Observed Outcome")
+       x = "Mean Predicted Probability",
+       y = "Proportion of Observed Outcome") +
+  theme_minimal()
 
 print(grid.arrange(roc_plot, cal_plot, ncol=2))
 ```
-
 
 # Disscusion
 
@@ -577,6 +711,12 @@ On the other hand, pooling coefficients from the model estimated with different 
 
 However, in this analysis, we didn't explore the multilinearity patterns in the covariates and thus didn't consider to include other interaction terms. Also, we didn't handle the outliers at certain covariates and the multip-centers effect.
 
+\newpage
+
+# Reference
+
+::: {#refs}
+:::
 
 \newpage
 
