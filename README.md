@@ -1,10 +1,42 @@
-# Predicting Tracheostomy/Death in Neonates with Severe BPD
+# Predicting Tracheostomy/Death in Neonates with Severe BPD: a comprehensive mix-effect logistic regression model accounting for patients with different discharge age
 
 ## Description
 
 This project is focused on the development of a regression model to predict the composite outcome of tracheostomy or death in neonates with severe bronchopulmonary dysplasia (sBPD). The timing and criteria for tracheostomy placement in this patient population are subjects of ongoing debate within the medical community. Accurate prediction of the need for tracheostomy at early postmenstrual ages (PMA) is of paramount importance, as it can significantly impact clinical decision-making and counseling for families.
 
 We utilized a national dataset containing demographic, diagnostic, and respiratory parameters of infants with sBPD. The project involves thorough data preprocessing to handle missing data and account for variations introduced by data collected from multiple medical centers. We employ regression modeling to predict the composite outcome of tracheostomy placement or death, offering insights into when and for whom tracheostomy may be necessary.
+
+## Repository Structure
+`./Figures_and_tables`: the folder that contains the generated figures and plots from the analysis.
+`report2.qmd`:  Source code for report.pdf
+`cite.bib`: bibliography embedded in the report.
+`report.pdf`: Final report of the project
+`README.md`: This README file
+
+## Report layout
+**Introduction**: Contextualizes the need for predictive modeling in neonates with sBPD and defines the study's objectives.
+
+**Methods:** Describes the analytical approach, including data preprocessing, multiple imputation strategies, and the application of lasso logistic regression for model development.
+
+**Results:** Presents the outcomes of the predictive modeling, highlighting the performance metrics and key predictors identified.
+
+**Discussion:** Reflects on the strengths and limitations of the analytical methods, the implications of the findings, and potential areas for future research.
+
+**Appendices:** Contains supplementary material supporting the analysis.
+
+
+## Figures and tables
+
+Figure 1: Missing patterns in the original dataset.
+![](Figures_and_tables/missing_pattern.png)
+
+Table: Estimated coefficients in the final model
+![](Figures_and_tables/coefs.png)
+
+
+Figure 2: Model discrimination and calibration.
+![](Figures_and_tables/performance.png)
+
 
 ## Getting Started
 
@@ -25,24 +57,12 @@ Before you begin, ensure you have the following software/tools installed:
 - RStudio (or another R development environment)
 - R packages required for the analysis (as specified in the RMarkdown report)
 
-Feel free to contribute to the project, report issues, or make improvements. Please refer to the "Contributing" section for details.
+Feel free to contribute to the project, report issues, or make improvements.
 
-## Contributing
+## Acknowledgments
 
-If you want to contribute to this project, please follow these guidelines:
+Dr. Chris Schmid from the Biostatistics Department at Brown University for the partnership.
 
-1. Fork the repository on GitHub.
+Participating centers in the BPD Collaborative Registry for providing data.
 
-2. Create a new branch for your feature or bug fix.
 
-3. Make your changes and ensure they are well-documented.
-
-4. Test your changes thoroughly.
-
-5. Create a pull request on the original repository, explaining the changes and their purpose.
-
-We welcome contributions and collaborations to enhance the accuracy and usefulness of the model.
-
-## License
-
-This project is licensed under the [Your License Name] - see the [LICENSE](LICENSE) file for details.
