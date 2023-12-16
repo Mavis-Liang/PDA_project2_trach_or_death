@@ -8,9 +8,13 @@ We utilized a national dataset containing demographic, diagnostic, and respirato
 
 ## Repository Structure
 `./Figures_and_tables`: the folder that contains the generated figures and plots from the analysis.
+
 `report2.qmd`:  Source code for report.pdf
+
 `cite.bib`: bibliography embedded in the report.
+
 `report.pdf`: Final report of the project
+
 `README.md`: This README file
 
 ## Report layout
